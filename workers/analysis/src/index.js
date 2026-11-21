@@ -99,7 +99,7 @@ function scoreActivity(commits) {
   return { score: Math.round(score), counts };
 }
 
-function scoreRepository(data) {
+export function scoreRepository(data) {
   const { repo, languages, commits, issues, pulls, readme, contents } = data;
   const findings = [];
   const dimensions = {};
