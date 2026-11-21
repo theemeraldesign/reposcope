@@ -189,7 +189,7 @@ async function verifyWebhook(body, signature, secret) {
 }
 
 async function handleAnalysisRequest(request, env, cors) {
-  if (!env.ANALYSIS_QUEUE || !env.SUPABASE_SERVICE_ROLE_KEY) {
+  if (!env.EVENTS_QUEUE || !env.SUPABASE_SERVICE_ROLE_KEY) {
     return json({ error: "ANALYSIS_QUEUE_CONFIGURATION_MISSING" }, 503, cors);
   }
   const token = bearer(request);
@@ -221,7 +221,7 @@ async function handleAnalysisRequest(request, env, cors) {
   if (!analysisRun?.id) return json({ error: "ANALYSIS_CREATE_FAILED" }, 502, cors);
 
   try {
-    await env.ANALYSIS_QUEUE.send({
+    await env.EVENTS_QUEUE.send({
       version: 1,
       analysisRunId: analysisRun.id,
       repositoryId,
