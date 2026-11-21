@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, ArrowUpRight, Bell, BookOpen, ChevronRight, CircleHelp, GitBranch, Github, LayoutDashboard, LockKeyhole, Plus, Search, Settings2, ShieldCheck, Sparkles, Star, GitFork, Menu, X } from 'lucide-react';
+import { Activity, ArrowUpRight, Bell, BookOpen, ChevronRight, CircleHelp, GitBranch, Github, LayoutDashboard, LockKeyhole, Plus, Search, Settings2, ShieldCheck, Sparkles, Star, Menu, X } from 'lucide-react';
 import { createClient, type Session } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
