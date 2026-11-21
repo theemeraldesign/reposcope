@@ -5,18 +5,19 @@ RepoScope uses a dedicated GitHub App. Do not use a personal access token. The a
 ## Endpoints
 
 - API: https://reposcope-api.reposcope.workers.dev
-- Callback URL: https://reposcope-api.reposcope.workers.dev/auth/github/callback
 - Setup URL: https://reposcope-api.reposcope.workers.dev/auth/github/setup
 - Webhook URL: https://reposcope-api.reposcope.workers.dev/webhooks/github
+
+The setup URL is GitHub's post-installation callback. A separate OAuth callback URL is not required for the installation-based flow because users sign in to RepoScope with Supabase Auth.
 
 ## Create the app
 
 1. Open https://github.com/settings/apps/new.
 2. Set the name to RepoScope.
-3. Set the homepage URL to the API URL above for the initial registration. We will update it when the web app domain is connected.
-4. Set the callback URL to the callback URL above.
-5. Set the setup URL to the setup URL above.
-6. Enable webhook delivery and use the webhook URL above.
+3. Set the homepage URL to https://reposcope-api.reposcope.workers.dev for initial registration. We will update it after the web application has its own domain.
+4. Leave OAuth callback URLs empty for now.
+5. Set the setup URL to https://reposcope-api.reposcope.workers.dev/auth/github/setup.
+6. Enable webhook delivery and use https://reposcope-api.reposcope.workers.dev/webhooks/github.
 7. Generate a strong webhook secret and store it securely.
 8. Keep the app private. Do not publish it to the GitHub Marketplace.
 
@@ -49,16 +50,35 @@ Subscribe to:
 - Check suites
 - Workflow runs
 
-## After creation
+## Values to retain
 
-Keep these values private and do not commit them:
+After creating the app, keep these values:
 
 - GitHub App ID
-- GitHub Client ID
-- GitHub Client Secret
+- GitHub App slug
 - GitHub App private key PEM
 - Webhook secret
 
-The app ID, private key, and webhook secret will be stored as Cloudflare Worker secrets. The client ID and client secret will be used only for the browser-safe OAuth initiation and server-side token exchange.
+The App ID, private key, and webhook secret must be stored as Cloudflare Worker secrets. The App slug and a separate random state-signing secret are also needed as Worker secrets or variables.
 
-Do not paste private keys into GitHub issues, source files, or chat. We will configure them directly in Cloudflare after the app is created.
+Never commit credentials or paste the private key into GitHub issues, source files, or chat.
+
+## Cloudflare secrets
+
+Configure these on the `reposcope-api` Worker:
+
+- `GITHUB_APP_ID`
+- `GITHUB_APP_SLUG`
+- `GITHUB_PRIVATE_KEY`
+- `GITHUB_WEBHOOK_SECRET`
+- `GITHUB_STATE_SECRET`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+Configure these on the `reposcope-analysis` Worker:
+
+- `GITHUB_APP_ID`
+- `GITHUB_PRIVATE_KEY`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+The service-role key must remain server-side. Never add it to the frontend or Git repository.
