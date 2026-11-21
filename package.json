@@ -4,9 +4,11 @@
   "version": "0.1.0",
   "packageManager": "pnpm@10.0.0",
   "scripts": {
+    "dev": "pnpm --filter @reposcope/web dev",
+    "build": "pnpm --filter @reposcope/web build",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "typecheck": "pnpm --filter @reposcope/web typecheck",
+    "test": "vitest run --passWithNoTests",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
