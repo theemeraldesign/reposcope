@@ -303,7 +303,9 @@ export default {
       return json({ user: { id: user.id, email: user.email ?? null } }, 200, cors);
     }
 
-    if (request.method === "POST" && /^\/v1\/repositories\/[0-9a-f-]+\/analyze$/i.test(url.pathname)) return handleAnalysisRequest(request, env, cors);\n\n    if (request.method === "GET" && url.pathname === "/v1/repositories") {
+    if (request.method === "POST" && /^\/v1\/repositories\/[0-9a-f-]+\/analyze$/i.test(url.pathname)) return handleAnalysisRequest(request, env, cors);
+
+    if (request.method === "GET" && url.pathname === "/v1/repositories") {
       const token = bearer(request);
       if (!token) return json({ error: "AUTHENTICATION_REQUIRED" }, 401, cors);
       const user = await getUser(token, env);
