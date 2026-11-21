@@ -4,7 +4,7 @@ GitHub intelligence for repository analytics, continuous monitoring, AI-assisted
 
 ## Project status
 
-RepoScope is in its initial engineering-foundation stage. Product scope and architecture are approved. Features are not yet implemented.
+The engineering foundation is in progress. The Supabase project is connected and its initial schema is deployed. The React + Vite web application shell and authentication screens are committed. GitHub App integration, API authorization, repository collection, analysis processing, and production deployment remain in progress.
 
 ## Planned capabilities
 
@@ -23,13 +23,22 @@ RepoScope is in its initial engineering-foundation stage. Product scope and arch
 - GitHub App and GitHub APIs
 - pnpm workspaces
 
+## Local development
+
+1. Copy `apps/web/.env.example` to `apps/web/.env.local`.
+2. Set the Supabase project URL and publishable key.
+3. Install dependencies with `pnpm install`.
+4. Start the frontend with `pnpm dev`.
+
+Never place Supabase secret/service-role keys in the frontend environment.
+
 ## Security
 
 Private repository data must remain private. All access decisions must be enforced server-side and backed by database policies. Never commit credentials, tokens, private repository contents, or production secrets.
 
 ## Documentation
 
-See docs/ for architecture and engineering decisions.
+See `docs/` for architecture and engineering decisions.
 
 ## License
 
