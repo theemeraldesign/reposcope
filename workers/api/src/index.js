@@ -64,8 +64,11 @@ async function createState(userId, secret) {
 async function verifyState(state, secret) {
   const [payload, signature, extra] = state.split(".");
   if (!payload || !signature || extra) return null;
+  if (!/^[A-Za-z0-9_-]+$/.test(signature)) return null;
+  let supplied;
+  try { supplied = decodeBase64Url(signature); } catch { return null; }
   const expected = await hmac(payload, secret);
-  if (!constantTimeEqual(expected, decodeBase64Url(signature))) return null;
+  if (!constantTimeEqual(expected, supplied)) return null;
   try {
     const data = JSON.parse(new TextDecoder().decode(decodeBase64Url(payload)));
     if (!data.sub || !data.exp || data.exp < Math.floor(Date.now() / 1000)) return null;
