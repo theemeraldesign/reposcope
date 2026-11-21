@@ -163,11 +163,12 @@ export function scoreRepository(data) {
 
 async function processWebhookEvent(job, env) {
   const rows = await adminRequest(
-    "/rest/v1/webhook_deliveries?select=delivery_id,event_type,installation_id,payload&delivery_id=eq." + encodeURIComponent(job.deliveryId),
+    "/rest/v1/webhook_deliveries?select=delivery_id,event_type,installation_id,payload,processed_at&delivery_id=eq." + encodeURIComponent(job.deliveryId),
     env
   );
   const delivery = rows?.[0];
   if (!delivery) return { skipped: "delivery_not_found" };
+  if (delivery.processed_at) return { skipped: "already_processed" };
 
   const supported = new Set(["push", "issues", "issue_comment", "pull_request", "pull_request_review", "release", "check_run", "check_suite", "workflow_run"]);
   const repositoryGithubId = delivery.payload?.repository?.id;
