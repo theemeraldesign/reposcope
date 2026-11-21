@@ -39,12 +39,17 @@ function App() {
 
   useEffect(() => {
     if (!supabase || !session?.user) { setAnalysisByRepo({}); return; }
-    supabase.from('analysis_runs').select('repository_id,status,score,created_at').order('created_at', { ascending: false }).limit(100)
-      .then(({ data }) => {
-        const latest: Record<string, { status: string; score: number | null }> = {};
-        for (const run of data ?? []) if (!latest[run.repository_id]) latest[run.repository_id] = { status: run.status, score: run.score === null ? null : Number(run.score) };
-        setAnalysisByRepo(latest);
-      });
+    const refreshAnalysis = () => {
+      supabase.from('analysis_runs').select('repository_id,status,score,created_at').order('created_at', { ascending: false }).limit(100)
+        .then(({ data }) => {
+          const latest: Record<string, { status: string; score: number | null }> = {};
+          for (const run of data ?? []) if (!latest[run.repository_id]) latest[run.repository_id] = { status: run.status, score: run.score === null ? null : Number(run.score) };
+          setAnalysisByRepo(latest);
+        });
+    };
+    refreshAnalysis();
+    const interval = window.setInterval(refreshAnalysis, 8000);
+    return () => window.clearInterval(interval);
   }, [session, repos]);
 
   const filteredRepos = useMemo(() => repos.filter((repo) => repo.full_name.toLowerCase().includes(query.toLowerCase())), [repos, query]);
