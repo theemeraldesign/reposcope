@@ -16,8 +16,13 @@ function App() {
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   const [authError, setAuthError] = useState('');
   const [repos, setRepos] = useState<Repo[]>([]);
+  const [analysisByRepo, setAnalysisByRepo] = useState<Record<string, { status: string; score: number | null }>>({});
+  const [analysisBusy, setAnalysisBusy] = useState<string | null>(null);
+  const [analysisNotice, setAnalysisNotice] = useState('');
   const [query, setQuery] = useState('');
-  const [mobileOpen, setMobileOpen] = useState(false);\n  const [githubBusy, setGithubBusy] = useState(false);\n  const [githubError, setGithubError] = useState('');
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [githubBusy, setGithubBusy] = useState(false);
+  const [githubError, setGithubError] = useState('');
 
   useEffect(() => {
     if (!supabase) return;
@@ -32,6 +37,16 @@ function App() {
       .then(({ data }) => setRepos((data ?? []) as Repo[]));
   }, [session]);
 
+  useEffect(() => {
+    if (!supabase || !session?.user) { setAnalysisByRepo({}); return; }
+    supabase.from('analysis_runs').select('repository_id,status,score,created_at').order('created_at', { ascending: false }).limit(100)
+      .then(({ data }) => {
+        const latest: Record<string, { status: string; score: number | null }> = {};
+        for (const run of data ?? []) if (!latest[run.repository_id]) latest[run.repository_id] = { status: run.status, score: run.score === null ? null : Number(run.score) };
+        setAnalysisByRepo(latest);
+      });
+  }, [session, repos]);
+
   const filteredRepos = useMemo(() => repos.filter((repo) => repo.full_name.toLowerCase().includes(query.toLowerCase())), [repos, query]);
 
   async function authenticate(event: React.FormEvent) {
@@ -43,6 +58,26 @@ function App() {
       : await supabase.auth.signUp({ email, password });
     if (result.error) setAuthError(result.error.message);
     else if (authMode === 'signup' && !result.data.session) setAuthError('Check your email to confirm your account, then sign in.');
+  }
+
+  async function runAnalysis(repositoryId: string) {
+    if (!session) return;
+    setAnalysisBusy(repositoryId);
+    setAnalysisNotice('');
+    try {
+      const response = await fetch(`https://reposcope-api.reposcope.workers.dev/v1/repositories/${repositoryId}/analyze`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not start repository analysis.');
+      setAnalysisByRepo((current) => ({ ...current, [repositoryId]: { status: 'queued', score: null } }));
+      setAnalysisNotice('Analysis queued. RepoScope is collecting repository evidence.');
+    } catch (error) {
+      setAnalysisNotice(error instanceof Error ? error.message : 'Analysis request failed.');
+    } finally {
+      setAnalysisBusy(null);
+    }
   }
 
   async function connectGithub() {
@@ -90,14 +125,19 @@ function App() {
       <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMobileOpen(true)}><Menu size={19}/></button><div className="breadcrumb">Workspace <ChevronRight size={14}/> Overview</div><div className="top-actions"><span className="status-dot"/> All systems operational <button className="icon-button"><Bell size={18}/></button></div></header>
       <div className="content">
         <section className="welcome-row"><div><div className="eyebrow">REPOSITORY INTELLIGENCE</div><h1>Your codebase, in focus.</h1><p className="subheading">A clear picture of what is happening across your repositories.</p></div><button className="primary-button" onClick={connectGithub} disabled={githubBusy}><Plus size={17}/> {githubBusy ? "Opening GitHub…" : "Connect GitHub"}</button></section>
-        {githubError && <div className="auth-error" role="alert">{githubError}</div>}\n        <section className="metric-grid">
+        {githubError && <div className="auth-error" role="alert">{githubError}</div>}
+        {analysisNotice && <div className="auth-error" role="status">{analysisNotice}</div>}
+        <section className="metric-grid">
           <Metric icon={<GitBranch size={18}/>} label="Repositories" value={String(repos.length)} note="Connected to your workspace"/>
           <Metric icon={<Activity size={18}/>} label="Analyses completed" value="—" note="No analysis runs yet"/>
           <Metric icon={<Star size={18}/>} label="Stars tracked" value="—" note="Waiting for repository data"/>
           <Metric icon={<ShieldCheck size={18}/>} label="Health overview" value="Pending" note="Your first analysis is next"/>
         </section>
         <section className="panel repo-panel"><div className="panel-heading"><div><h2>Your repositories</h2><p>Monitor public and private projects in one place.</p></div><div className="repo-tools"><div className="search-field"><Search size={16}/><input placeholder="Find a repository" value={query} onChange={(e) => setQuery(e.target.value)}/></div><button className="secondary-button" onClick={connectGithub} disabled={githubBusy}><Plus size={15}/> Add repository</button></div></div>
-          {filteredRepos.length ? <div className="repo-list">{filteredRepos.map((repo) => <article className="repo-row" key={repo.id}><div className="repo-icon"><Github size={18}/></div><div className="repo-info"><strong>{repo.full_name}</strong><p>{repo.description || 'No description provided.'}</p></div><span className={repo.visibility === 'private' ? 'visibility private' : 'visibility'}>{repo.visibility === 'private' ? <LockKeyhole size={12}/> : <Github size={12}/>} {repo.visibility}</span><span className="repo-date">{new Date(repo.updated_at).toLocaleDateString()}</span><ChevronRight size={17} className="muted-icon"/></article>)}</div> : <div className="empty-state"><div className="empty-icon"><GitBranch size={22}/></div><h3>{query ? 'No matching repositories' : 'Your workspace is ready'}</h3><p>{query ? 'Try a different repository name.' : 'Connect GitHub to bring your repositories into RepoScope. Your first health report will appear here.'}</p>{!query && <button className="primary-button" onClick={connectGithub} disabled={githubBusy}><Github size={16}/> {githubBusy ? "Opening GitHub…" : "Connect GitHub"}</button>}</div>}
+          {filteredRepos.length ? <div className="repo-list">{filteredRepos.map((repo) => <article className="repo-row" key={repo.id}><div className="repo-icon"><Github size={18}/></div><div className="repo-info"><strong>{repo.full_name}</strong><p>{repo.description || 'No description provided.'}</p></div><span className={repo.visibility === 'private' ? 'visibility private' : 'visibility'}>{repo.visibility === 'private' ? <LockKeyhole size={12}/> : <Github size={12}/>} {repo.visibility}</span><span className="repo-date">{new Date(repo.updated_at).toLocaleDateString()}</span><div className="repo-analysis">
+            {analysisByRepo[repo.id] && <span className="analysis-status">{analysisByRepo[repo.id].status === 'completed' && analysisByRepo[repo.id].score !== null ? `Score ${Math.round(analysisByRepo[repo.id].score!)}/100` : analysisByRepo[repo.id].status}</span>}
+            <button className="secondary-button" onClick={() => runAnalysis(repo.id)} disabled={analysisBusy === repo.id}>{analysisBusy === repo.id ? 'Analysing…' : 'Analyse'}</button>
+          </div><ChevronRight size={17} className="muted-icon"/></article>)}</div> : <div className="empty-state"><div className="empty-icon"><GitBranch size={22}/></div><h3>{query ? 'No matching repositories' : 'Your workspace is ready'}</h3><p>{query ? 'Try a different repository name.' : 'Connect GitHub to bring your repositories into RepoScope. Your first health report will appear here.'}</p>{!query && <button className="primary-button" onClick={connectGithub} disabled={githubBusy}><Github size={16}/> {githubBusy ? "Opening GitHub…" : "Connect GitHub"}</button>}</div>}
         </section>
         <div className="footer-note"><Sparkles size={14}/> Insights are based on repository evidence, with data freshness shown in every report.</div>
       </div>
