@@ -81,7 +81,7 @@ function pkcs1ToPkcs8(pem) {
   const length = pkcs1.length;
   if (length > 65535) throw new Error("GitHub private key is too large");
   const prefix = new Uint8Array([
-    0x30, 0x82, ((length + 20) >> 8) & 255, (length + 20) & 255,
+    0x30, 0x82, ((length + 22) >> 8) & 255, (length + 22) & 255,
     0x02, 0x01, 0x00,
     0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00,
     0x04, 0x82, (length >> 8) & 255, length & 255,
@@ -188,6 +188,56 @@ async function verifyWebhook(body, signature, secret) {
   return constantTimeEqual(expected, supplied);
 }
 
+async function handleAnalysisRequest(request, env, cors) {
+  if (!env.ANALYSIS_QUEUE || !env.SUPABASE_SERVICE_ROLE_KEY) {
+    return json({ error: "ANALYSIS_QUEUE_CONFIGURATION_MISSING" }, 503, cors);
+  }
+  const token = bearer(request);
+  if (!token) return json({ error: "AUTHENTICATION_REQUIRED" }, 401, cors);
+  const user = await getUser(token, env);
+  if (!user) return json({ error: "INVALID_OR_EXPIRED_SESSION" }, 401, cors);
+
+  const url = new URL(request.url);
+  const repositoryId = url.pathname.split("/").filter(Boolean).at(-2);
+  if (!/^[0-9a-f-]{36}$/i.test(repositoryId || "")) return json({ error: "INVALID_REPOSITORY_ID" }, 400, cors);
+
+  const lookup = await supabaseAdmin(
+    "/rest/v1/repositories?select=id,owner_id,installation_id,full_name&id=eq." + encodeURIComponent(repositoryId) + "&owner_id=eq." + encodeURIComponent(user.id),
+    env
+  );
+  const repository = await lookup.json().catch(() => []);
+  if (!lookup.ok) return json({ error: "REPOSITORY_LOOKUP_FAILED" }, 502, cors);
+  if (!Array.isArray(repository) || !repository[0]) return json({ error: "REPOSITORY_NOT_FOUND" }, 404, cors);
+  if (!repository[0].installation_id) return json({ error: "GITHUB_INSTALLATION_MISSING" }, 409, cors);
+
+  const created = await supabaseAdmin("/rest/v1/analysis_runs", env, {
+    method: "POST",
+    headers: { prefer: "return=representation" },
+    body: JSON.stringify({ repository_id: repositoryId, requested_by: user.id, status: "queued" }),
+  });
+  if (!created.ok) return json({ error: "ANALYSIS_CREATE_FAILED" }, 502, cors);
+  const rows = await created.json().catch(() => []);
+  const analysisRun = rows[0];
+  if (!analysisRun?.id) return json({ error: "ANALYSIS_CREATE_FAILED" }, 502, cors);
+
+  try {
+    await env.ANALYSIS_QUEUE.send({
+      version: 1,
+      analysisRunId: analysisRun.id,
+      repositoryId,
+      installationId: repository[0].installation_id,
+    });
+  } catch (error) {
+    await supabaseAdmin("/rest/v1/analysis_runs?id=eq." + encodeURIComponent(analysisRun.id), env, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "failed", error_code: "QUEUE_DELIVERY_FAILED", completed_at: new Date().toISOString() }),
+    });
+    console.error("Could not enqueue analysis", error.message);
+    return json({ error: "ANALYSIS_QUEUE_DELIVERY_FAILED" }, 502, cors);
+  }
+  return json({ analysisRunId: analysisRun.id, status: "queued" }, 202, cors);
+}
+
 async function handleWebhook(request, env, cors) {
   if (!env.GITHUB_WEBHOOK_SECRET || !env.SUPABASE_SERVICE_ROLE_KEY) {
     return json({ error: "WEBHOOK_CONFIGURATION_MISSING" }, 503, cors);
@@ -253,7 +303,7 @@ export default {
       return json({ user: { id: user.id, email: user.email ?? null } }, 200, cors);
     }
 
-    if (request.method === "GET" && url.pathname === "/v1/repositories") {
+    if (request.method === "POST" && /^\/v1\/repositories\/[0-9a-f-]+\/analyze$/i.test(url.pathname)) return handleAnalysisRequest(request, env, cors);\n\n    if (request.method === "GET" && url.pathname === "/v1/repositories") {
       const token = bearer(request);
       if (!token) return json({ error: "AUTHENTICATION_REQUIRED" }, 401, cors);
       const user = await getUser(token, env);
