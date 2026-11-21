@@ -161,6 +161,36 @@ async function handleSetup(request, env, cors) {
     return json({ error: "GITHUB_INSTALLATION_ACCOUNT_INVALID" }, 502, cors);
   }
 
+  const tokenResponse = await fetch(`https://api.github.com/app/installations/${installationId}/access_tokens`, {
+    method: "POST",
+    headers: {
+      accept: "application/vnd.github+json",
+      authorization: `Bearer ${appJwt}`,
+      "x-github-api-version": "2022-11-28",
+      "content-type": "application/json",
+      "user-agent": "RepoScope",
+    },
+    body: "{}",
+  });
+  if (!tokenResponse.ok) return json({ error: "GITHUB_INSTALLATION_TOKEN_FAILED" }, 502, cors);
+  const installationToken = (await tokenResponse.json()).token;
+  const discoveredRepositories = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const response = await fetch(`https://api.github.com/installation/repositories?per_page=100&page=${page}`, {
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Bearer ${installationToken}`,
+        "x-github-api-version": "2022-11-28",
+        "user-agent": "RepoScope",
+      },
+    });
+    if (!response.ok) return json({ error: "GITHUB_REPOSITORY_SYNC_FAILED" }, 502, cors);
+    const data = await response.json();
+    const batch = data.repositories || [];
+    discoveredRepositories.push(...batch);
+    if (batch.length < 100) break;
+  }
+
   const saved = await supabaseAdmin("/rest/v1/github_installations?on_conflict=installation_id", env, {
     method: "POST",
     headers: { prefer: "resolution=merge-duplicates,return=minimal" },
@@ -175,8 +205,35 @@ async function handleSetup(request, env, cors) {
     console.error("Could not persist GitHub installation", saved.status, await saved.text());
     return json({ error: "INSTALLATION_SAVE_FAILED" }, 502, cors);
   }
+
+  const repositoryRows = discoveredRepositories.map((repo) => ({
+    owner_id: stateData.sub,
+    github_repo_id: repo.id,
+    installation_id: installationId,
+    full_name: repo.full_name,
+    owner_login: repo.owner?.login || accountLogin,
+    name: repo.name,
+    description: repo.description,
+    visibility: repo.visibility === "public" ? "public" : "private",
+    default_branch: repo.default_branch,
+    is_archived: Boolean(repo.archived),
+  }));
+  if (repositoryRows.length) {
+    const synced = await supabaseAdmin("/rest/v1/repositories?on_conflict=owner_id,github_repo_id", env, {
+      method: "POST",
+      headers: { prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify(repositoryRows),
+    });
+    if (!synced.ok) {
+      console.error("Could not sync GitHub repositories", synced.status, await synced.text());
+      return json({ error: "REPOSITORY_SYNC_FAILED" }, 502, cors);
+    }
+  }
+
   const destination = env.APP_ORIGIN && env.APP_ORIGIN !== "*" ? new URL("/?github=connected", env.APP_ORIGIN).toString() : null;
-  return destination ? Response.redirect(destination, 302) : json({ connected: true, account: accountLogin }, 200, cors);
+  return destination
+    ? Response.redirect(destination, 302)
+    : json({ connected: true, account: accountLogin, repositoriesSynced: repositoryRows.length }, 200, cors);
 }
 
 async function verifyWebhook(body, signature, secret) {
