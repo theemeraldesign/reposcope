@@ -130,7 +130,7 @@ async function handleInstall(request, env, cors) {
   const state = await createState(user.id, env.GITHUB_STATE_SECRET);
   const target = new URL(`https://github.com/apps/${encodeURIComponent(env.GITHUB_APP_SLUG)}/installations/new`);
   target.searchParams.set("state", state);
-  return Response.redirect(target.toString(), 302);
+  return json({ installationUrl: target.toString() }, 200, cors);
 }
 
 async function handleSetup(request, env, cors) {
@@ -204,7 +204,7 @@ async function handleWebhook(request, env, cors) {
 
   const saved = await supabaseAdmin("/rest/v1/webhook_deliveries?on_conflict=delivery_id", env, {
     method: "POST",
-    headers: { prefer: "resolution=ignore-duplicates,return=minimal" },
+    headers: { prefer: "resolution=ignore-duplicates,return=representation" },
     body: JSON.stringify({
       delivery_id: deliveryId,
       event_type: eventType,
@@ -213,11 +213,13 @@ async function handleWebhook(request, env, cors) {
     }),
   });
   if (!saved.ok) return json({ error: "WEBHOOK_PERSISTENCE_FAILED" }, 502, cors);
+  const inserted = await saved.json().catch(() => []);
+  const isNewDelivery = Array.isArray(inserted) && inserted.length > 0;
 
-  if (env.EVENTS_QUEUE) {
+  if (isNewDelivery && env.EVENTS_QUEUE) {
     await env.EVENTS_QUEUE.send({ version: 1, deliveryId, eventType, installationId: payload.installation?.id ?? null });
   }
-  return json({ accepted: true }, 202, cors);
+  return json({ accepted: true, duplicate: !isNewDelivery }, 202, cors);
 }
 
 export default {
