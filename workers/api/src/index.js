@@ -209,6 +209,7 @@ async function handleSetup(request, env, cors) {
     return json({ error: "INSTALLATION_SAVE_FAILED" }, 502, cors);
   }
 
+  const syncTimestamp = new Date().toISOString();
   const repositoryRows = discoveredRepositories.map((repo) => ({
     owner_id: stateData.sub,
     github_repo_id: repo.id,
@@ -220,6 +221,8 @@ async function handleSetup(request, env, cors) {
     visibility: repo.visibility === "public" ? "public" : "private",
     default_branch: repo.default_branch,
     is_archived: Boolean(repo.archived),
+    last_synced_at: syncTimestamp,
+    updated_at: syncTimestamp,
   }));
   if (repositoryRows.length) {
     const synced = await supabaseAdmin("/rest/v1/repositories?on_conflict=owner_id,github_repo_id", env, {
