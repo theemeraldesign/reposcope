@@ -1,6 +1,6 @@
 # RepoScope Implementation Status
 
-Last verified: 2026-11-21
+Last updated: 2026-11-21
 
 ## Completed
 
@@ -12,16 +12,17 @@ Last verified: 2026-11-21
 - API Worker is deployed at `https://reposcope-api.reposcope.workers.dev`.
 - API health, Supabase session validation, user-scoped repository reads, GitHub installation entry, setup callback, and webhook signature verification code are implemented.
 - API Worker has the `reposcope-events` queue producer binding.
-- Analysis Worker is deployed with its health endpoint and initial queue handler contract.
+- Analysis Worker is deployed with GitHub App authentication, repository data collection, snapshots, and heuristic scoring.
+- `reposcope-analysis` and `reposcope-events` queues are created; the analysis Worker is attached as a consumer to both.
+- API Worker accepts authenticated manual analysis requests and enqueues jobs through `reposcope-events`.
+- GitHub webhook deliveries are verified, deduplicated, persisted, and routed to repository re-analysis when relevant.
 - Worker source and configuration are tracked in GitHub.
 
 ## In progress
 
-- Register the RepoScope GitHub App.
-- Configure GitHub App, webhook, state-signing, and Supabase service-role secrets in Cloudflare.
-- Complete the installation flow and test it with a selected repository.
-- Configure queue consumers and implement webhook event processing.
-- Implement repository collection, normalisation, snapshots, and explainable scoring.
+- Complete the GitHub App installation flow and test it with a selected public and private repository.
+- Verify end-to-end analysis against a real installed repository and inspect saved snapshots, scores, and findings.
+- Add automated tests for scoring and queue processing; confirm CI passes.
 - Implement reports, PDF exports, and share links.
 - Configure frontend hosting and a production domain.
 - Verify builds, typechecks, lint, and integration tests in CI.
