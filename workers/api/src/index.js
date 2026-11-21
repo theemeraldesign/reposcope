@@ -323,8 +323,13 @@ async function handleWebhook(request, env, cors) {
   const inserted = await saved.json().catch(() => []);
   const isNewDelivery = Array.isArray(inserted) && inserted.length > 0;
 
-  if (isNewDelivery && env.EVENTS_QUEUE) {
-    await env.EVENTS_QUEUE.send({ version: 1, deliveryId, eventType, installationId: payload.installation?.id ?? null });
+  if (env.EVENTS_QUEUE) {
+    try {
+      await env.EVENTS_QUEUE.send({ version: 1, deliveryId, eventType, installationId: payload.installation?.id ?? null });
+    } catch (error) {
+      console.error("Could not enqueue GitHub webhook delivery", error.message);
+      return json({ error: "WEBHOOK_QUEUE_DELIVERY_FAILED" }, 502, cors);
+    }
   }
   return json({ accepted: true, duplicate: !isNewDelivery }, 202, cors);
 }
