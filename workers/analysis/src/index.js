@@ -163,7 +163,7 @@ function scoreRepository(data) {
 
 async function processAnalysis(job, env) {
   const rows = await adminRequest(
-    "/rest/v1/repositories?select=id,owner_id,installation_id,full_name,visibility& id=eq." + encodeURIComponent(job.repositoryId),
+    "/rest/v1/repositories?select=id,owner_id,installation_id,full_name,visibility&id=eq." + encodeURIComponent(job.repositoryId),
     env
   );
   const repository = rows?.[0];
@@ -183,7 +183,7 @@ async function processAnalysis(job, env) {
   });
   if (!tokenResponse.ok) throw Object.assign(new Error("Could not obtain GitHub installation token"), { status: tokenResponse.status, retryable: tokenResponse.status === 429 || tokenResponse.status >= 500 });
   const installationToken = (await tokenResponse.json()).token;
-  const [repo, languages, commits, issues, pulls, readmeResult, rootContents] = await Promise.all([
+  const [repo, languages, commits, issues, pulls, readmeResult, rootContents, githubDir, workflows] = await Promise.all([
     githubRequest("/repos/" + repository.full_name, installationToken),
     githubRequest("/repos/" + repository.full_name + "/languages", installationToken).catch(() => ({})),
     githubRequest("/repos/" + repository.full_name + "/commits?per_page=100", installationToken).catch(() => []),
@@ -194,7 +194,7 @@ async function processAnalysis(job, env) {
   ]);
   const readme = Boolean(readmeResult);
   const contentPaths = Array.isArray(rootContents) ? rootContents : [];
-  const githubContents = contentPaths;
+  const githubContents = [...contentPaths, ...(Array.isArray(githubDir) ? githubDir : []), ...(Array.isArray(workflows) ? workflows : [])];
   const score = scoreRepository({ repo, languages, commits, issues, pulls, readme, contents: githubContents });
 
   const snapshot = {
