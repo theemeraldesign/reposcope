@@ -161,6 +161,49 @@ function scoreRepository(data) {
   return { score, dimensions, findings, activity };
 }
 
+async function processWebhookEvent(job, env) {
+  const rows = await adminRequest(
+    "/rest/v1/webhook_deliveries?select=delivery_id,event_type,installation_id,payload&delivery_id=eq." + encodeURIComponent(job.deliveryId),
+    env
+  );
+  const delivery = rows?.[0];
+  if (!delivery) return { skipped: "delivery_not_found" };
+
+  const supported = new Set(["push", "issues", "issue_comment", "pull_request", "pull_request_review", "release", "check_run", "check_suite", "workflow_run"]);
+  const repositoryGithubId = delivery.payload?.repository?.id;
+  if (!supported.has(delivery.event_type) || !repositoryGithubId || !delivery.installation_id) {
+    await adminRequest("/rest/v1/webhook_deliveries?delivery_id=eq." + encodeURIComponent(job.deliveryId), env, {
+      method: "PATCH", body: JSON.stringify({ processed_at: new Date().toISOString(), processing_error: null }),
+    });
+    return { skipped: "event_not_actionable" };
+  }
+
+  const repositories = await adminRequest(
+    "/rest/v1/repositories?select=id,owner_id,installation_id,full_name&github_repo_id=eq." + encodeURIComponent(repositoryGithubId) + "&installation_id=eq." + encodeURIComponent(delivery.installation_id),
+    env
+  );
+  for (const repository of repositories || []) {
+    const created = await adminRequest("/rest/v1/analysis_runs", env, {
+      method: "POST",
+      headers: { prefer: "return=representation" },
+      body: JSON.stringify({ repository_id: repository.id, requested_by: repository.owner_id, status: "queued" }),
+    });
+    const runs = await created;
+    if (runs?.[0]?.id) {
+      await processAnalysis({
+        version: 1,
+        analysisRunId: runs[0].id,
+        repositoryId: repository.id,
+        installationId: delivery.installation_id,
+      }, env);
+    }
+  }
+  await adminRequest("/rest/v1/webhook_deliveries?delivery_id=eq." + encodeURIComponent(job.deliveryId), env, {
+    method: "PATCH", body: JSON.stringify({ processed_at: new Date().toISOString(), processing_error: null }),
+  });
+  return { repositoriesAnalyzed: repositories?.length || 0 };
+}
+
 async function processAnalysis(job, env) {
   const rows = await adminRequest(
     "/rest/v1/repositories?select=id,owner_id,installation_id,full_name,visibility&id=eq." + encodeURIComponent(job.repositoryId),
@@ -244,29 +287,35 @@ export default {
         message.retry({ delaySeconds: 120 });
         continue;
       }
-      if (!job || job.version !== 1 || !job.analysisRunId || !job.repositoryId || !job.installationId) {
-        console.error("Rejected malformed RepoScope analysis message.");
+      const isAnalysisJob = job?.version === 1 && job.analysisRunId && job.repositoryId && job.installationId;
+      const isWebhookJob = job?.version === 1 && job.deliveryId && job.eventType;
+      if (!isAnalysisJob && !isWebhookJob) {
+        console.error("Rejected malformed RepoScope queue message.");
         message.ack();
         continue;
       }
       try {
-        const result = await processAnalysis(job, env);
-        console.log("RepoScope analysis completed", { analysisRunId: job.analysisRunId, ...result });
+        const result = isAnalysisJob
+          ? await processAnalysis(job, env)
+          : await processWebhookEvent(job, env);
+        console.log("RepoScope queue job completed", { analysisRunId: job.analysisRunId || null, deliveryId: job.deliveryId || null, ...result });
         message.ack();
       } catch (error) {
-        console.error("RepoScope analysis failed", {
-          analysisRunId: job.analysisRunId,
+        console.error("RepoScope queue job failed", {
+          analysisRunId: job.analysisRunId || null,
+          deliveryId: job.deliveryId || null,
           status: error.status || null,
           message: error.message,
         });
-        if (error.retryable && message.attempts < 5) {
+        if ((error.retryable || !error.permanent) && message.attempts < 5) {
           message.retry({ delaySeconds: Math.min(300, 15 * message.attempts) });
         } else {
           try {
-            await adminRequest("/rest/v1/analysis_runs?id=eq." + encodeURIComponent(job.analysisRunId), env, {
+            if (job.analysisRunId) await adminRequest("/rest/v1/analysis_runs?id=eq." + encodeURIComponent(job.analysisRunId), env, {
               method: "PATCH",
               body: JSON.stringify({ status: "failed", error_code: error.permanent ? "ANALYSIS_INPUT_INVALID" : "ANALYSIS_FAILED", completed_at: new Date().toISOString() }),
             });
+            if (job.deliveryId) await adminRequest("/rest/v1/webhook_deliveries?delivery_id=eq." + encodeURIComponent(job.deliveryId), env, { method: "PATCH", body: JSON.stringify({ processing_error: "EVENT_PROCESSING_FAILED" }) });
           } catch (updateError) {
             console.error("Could not mark analysis run failed", updateError.message);
           }
